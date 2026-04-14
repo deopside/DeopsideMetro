@@ -6,8 +6,9 @@ import { AppHeader } from "@/components/app-header";
 import { AppFooter } from "@/components/app-footer";
 import { StationPicker } from "@/components/station-picker";
 import { RouteVisualization } from "@/components/route-visualization";
+import { Slider } from "@/components/ui/slider";
 import { runtimeMetroGraph, runtimeMetroStations } from "@/src/data/metroRuntime";
-import { findShortestPathAsync } from "@/src/utils/pathFinder";
+import { findRouteAlternativesAsync } from "@/src/utils/pathFinder";
 import { validateTransferNodes } from "@/src/utils/graphValidator";
 
 export default function Home() {
@@ -15,15 +16,25 @@ export default function Home() {
   const [endStation, setEndStation] = useState<string | undefined>();
   const [isPlanning, setIsPlanning] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
-  const [route, setRoute] = useState<
+  const [routeOptions, setRouteOptions] = useState<
     {
-      id: string;
-      name: string;
-      color: string;
-      lineName: string;
-      connections: string[];
+      path: {
+        id: string;
+        name: string;
+        color: string;
+        lineName: string;
+        line?: string;
+        connections: string[];
+      }[];
+      stations: number;
+      transfers: number;
+      cost: number;
+      estimatedTime: number;
     }[]
   >([]);
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
+  const [transferPenalty, setTransferPenalty] = useState(10);
+  const [mcdPenalty, setMcdPenalty] = useState(15);
 
   const stationOptions = useMemo(() => runtimeMetroStations, []);
   const graph = useMemo(() => runtimeMetroGraph, []);
@@ -44,12 +55,12 @@ export default function Home() {
     if (!app?.MainButton) return;
 
     app.MainButton.setText("Построить путь");
-    if (route.length > 0) {
+    if (routeOptions.length > 0) {
       app.MainButton.show();
     } else {
       app.MainButton.hide();
     }
-  }, [route.length]);
+  }, [routeOptions.length]);
 
   useEffect(() => {
     const issues = validateTransferNodes(graph);
@@ -63,8 +74,13 @@ export default function Home() {
 
     setIsPlanning(true);
     setHasSearched(true);
-    const result = await findShortestPathAsync(startStation, endStation, graph);
-    setRoute(result);
+    const alternatives = await findRouteAlternativesAsync(startStation, endStation, graph, {
+      transferPenalty,
+      mcdPenalty,
+      maxAlternatives: 3,
+    });
+    setRouteOptions(alternatives);
+    setSelectedRouteIndex(0);
     setIsPlanning(false);
   };
 
@@ -72,7 +88,8 @@ export default function Home() {
     const temp = startStation;
     setStartStation(endStation);
     setEndStation(temp);
-    setRoute([]);
+    setRouteOptions([]);
+    setSelectedRouteIndex(0);
     setHasSearched(false);
   };
 
@@ -99,7 +116,8 @@ export default function Home() {
             dotColor="bg-primary"
             onChange={(value) => {
               setStartStation(value || undefined);
-              setRoute([]);
+              setRouteOptions([]);
+              setSelectedRouteIndex(0);
               setHasSearched(false);
             }}
           />
@@ -127,10 +145,43 @@ export default function Home() {
             dotColor="bg-destructive"
             onChange={(value) => {
               setEndStation(value || undefined);
-              setRoute([]);
+              setRouteOptions([]);
+              setSelectedRouteIndex(0);
               setHasSearched(false);
             }}
           />
+        </section>
+
+        <section className="rounded-2xl bg-card border border-border shadow-sm p-3 flex flex-col gap-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Приоритеты маршрута
+          </p>
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Штраф за пересадку</span>
+              <span className="text-xs font-semibold text-foreground">{transferPenalty}</span>
+            </div>
+            <Slider
+              value={[transferPenalty]}
+              min={0}
+              max={20}
+              step={1}
+              onValueChange={(value) => setTransferPenalty(value[0] ?? 10)}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Штраф за МЦД</span>
+              <span className="text-xs font-semibold text-foreground">{mcdPenalty}</span>
+            </div>
+            <Slider
+              value={[mcdPenalty]}
+              min={0}
+              max={30}
+              step={1}
+              onValueChange={(value) => setMcdPenalty(value[0] ?? 15)}
+            />
+          </div>
         </section>
 
         {/* Plan Route button */}
@@ -154,8 +205,41 @@ export default function Home() {
           )}
         </button>
 
+        {routeOptions.length > 0 && (
+          <section className="rounded-2xl bg-card border border-border shadow-sm p-3 flex flex-col gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Варианты маршрута
+            </p>
+            <div className="flex flex-col gap-2 max-h-36 overflow-y-auto">
+              {routeOptions.map((option, index) => (
+                <button
+                  key={`route-option-${index}`}
+                  type="button"
+                  onClick={() => setSelectedRouteIndex(index)}
+                  className={`rounded-xl border px-3 py-2 text-left transition-colors ${
+                    index === selectedRouteIndex
+                      ? "border-primary bg-primary/10"
+                      : "border-border bg-background hover:bg-secondary"
+                  }`}
+                >
+                  <div className="text-sm font-semibold text-foreground">Маршрут {index + 1}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Станций: {option.stations} | Пересадок: {option.transfers} | Стоимость:{" "}
+                    {option.cost.toFixed(1)}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Route visualization — fills remaining space */}
-        <RouteVisualization route={route} isPlanning={isPlanning} showNotFound={hasSearched && route.length === 0 && !isPlanning} />
+        <RouteVisualization
+          route={routeOptions[selectedRouteIndex]?.path || []}
+          routeCost={routeOptions[selectedRouteIndex]?.cost}
+          isPlanning={isPlanning}
+          showNotFound={hasSearched && routeOptions.length === 0 && !isPlanning}
+        />
       </main>
 
       {/* Footer */}

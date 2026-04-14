@@ -10,6 +10,7 @@ interface RouteVisualizationProps {
     color: string;
     lineName: string;
   }[];
+  routeCost?: number;
   isPlanning?: boolean;
   showNotFound?: boolean;
 }
@@ -25,6 +26,7 @@ const METRO_LINES = [
 
 export function RouteVisualization({
   route = [],
+  routeCost,
   isPlanning = false,
   showNotFound = false,
 }: RouteVisualizationProps) {
@@ -115,6 +117,11 @@ export function RouteVisualization({
             <p className="text-xs text-muted-foreground">
               Примерное время: {estimatedTime.toFixed(1)} мин
             </p>
+            {typeof routeCost === "number" && (
+              <p className="text-xs text-muted-foreground">
+                Общая стоимость: {routeCost.toFixed(1)}
+              </p>
+            )}
           </div>
           <div className="flex flex-col gap-2.5">
             {route.map((station, index) => {
